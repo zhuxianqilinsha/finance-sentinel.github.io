@@ -131,9 +131,18 @@ def load_data():
 
     return df, counties_coords
 
-# ------------------ 预警原因生成 ------------------
+# ------------------ 预警原因生成（修复版：绿灯只显示健康） ------------------
 def generate_warning_reasons(row):
     reasons, suggestions = [], []
+    level = row['预警等级']
+
+    # 绿灯：直接返回健康，不判断指标
+    if "绿灯" in level:
+        reasons.append("✅ 财政运行稳健，主要指标均处于健康区间")
+        suggestions.append("持续优化财政结构，保持高质量发展")
+        return reasons, suggestions
+
+    # 黄灯/红灯：正常检测风险
     debt = row.get('债务率', 0)
     if pd.notna(debt) and debt > 1.2:
         reasons.append("债务率超过120%警戒线")
@@ -183,7 +192,7 @@ def generate_pdf_report(county_name, year, score, rank, warning_level, reasons, 
     buffer.seek(0)
     return buffer
 
-# ------------------ 平台介绍（动态渐变封面，完全保留第一个代码样式） ------------------
+# ------------------ 平台介绍 ------------------
 def platform_intro():
     st.markdown("""
     <style>
@@ -278,7 +287,7 @@ def platform_intro():
         with [col1,col2,col3][i%3]:
             st.markdown(f'<div class="feature-card" style="background:rgba(255,255,255,0.1); border-radius:20px; padding:1.5rem; text-align:center;"><h2 style="font-size:2.5rem;">{icon}</h2><h3 style="color:white;">{title}</h3><p style="color:#d0e5ff;">{desc}</p></div>', unsafe_allow_html=True)
 
-# ------------------ 使用指南（保留第一个代码的丰富内容） ------------------
+# ------------------ 使用指南 ------------------
 def usage_guide():
     st.markdown("## 📖 使用指南")
     with st.expander("🎯 快速入门", expanded=True):
@@ -326,7 +335,7 @@ def usage_guide():
     st.success("✅ 指南使用完毕，祝您使用愉快！")
     st.info("💡 如需进一步分析，可在核心功能中切换县域与年份。")
 
-# ------------------ 核心功能（完全采用第二个代码的精华部分，并适配现有数据） ------------------
+# ------------------ 核心功能（已按你要求调整顺序） ------------------
 def core_functions(df, counties_coords):
     counties = sorted(df['县名'].unique())
     years = sorted(df['年份'].unique(), reverse=True)
@@ -336,7 +345,6 @@ def core_functions(df, counties_coords):
         y = st.selectbox("📅 年份", years)
         c = st.selectbox("🏙️ 县域", counties)
 
-        # PDF报告生成（使用第一个代码的完整版，带趋势图）
         if st.button("📄 生成PDF报告", use_container_width=True):
             with st.spinner("生成报告中..."):
                 cur = df[(df['年份']==y) & (df['县名']==c)].iloc[0]
@@ -351,14 +359,13 @@ def core_functions(df, counties_coords):
                 pdf = generate_pdf_report(c, y, score, rank, warning, reasons, suggests, fig)
                 st.download_button("📥 下载报告", data=pdf, file_name=f"{c}_{y}年报告.pdf", mime="application/pdf", use_container_width=True)
 
-    # 获取当前选中数据
     cur = df[(df['年份']==y) & (df['县名']==c)]
     if cur.empty:
         st.warning("无数据")
         return
     cur = cur.iloc[0]
 
-    # ------------------ 优化后的超级好看卡片（整合第二个代码样式） ------------------
+    # ------------------ 评分卡片 + 预警卡片 ------------------
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"""
@@ -401,32 +408,10 @@ def core_functions(df, counties_coords):
     fig.update_layout(height=360, template='plotly_white')
     st.plotly_chart(fig, use_container_width=True)
 
-    # ------------------ 6大指标全维度可视化（第二个代码的精华） ------------------
-    st.markdown("---")
-    st.subheader("📊 6大指标全维度可视化")
-    inds = ['财政自给率','债务率','人均财政收入','税收收入占比','土地财政依赖度','财政支出增长率']
-    t1, t2 = st.tabs(["📈 单县历史趋势", "📊 当年全县对比"])
-
-    with t1:
-        ct = df[df['县名']==c].sort_values('年份')
-        for idx, i in enumerate(inds):
-            if i not in df.columns: continue
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=ct['年份'], y=ct[i], mode='lines+markers', name=i))
-            fig.update_layout(title=i, height=260, template='plotly_white')
-            st.plotly_chart(fig, use_container_width=True)
-
-    with t2:
-        yr = df[df['年份']==y].sort_values('综合得分', ascending=False)
-        for i in inds:
-            if i not in df.columns: continue
-            fig = go.Figure(go.Bar(x=yr['县名'], y=yr[i], name=i))
-            fig.update_layout(title=i, height=260, template='plotly_white')
-            st.plotly_chart(fig, use_container_width=True)
-
-    # ------------------ 短板诊断 ------------------
+    # ------------------ 短板诊断 + 文字预警 ------------------
     st.markdown("---")
     st.subheader("🔬 指标体系诊断 - 短板定位")
+    inds = ['财政自给率','债务率','人均财政收入','税收收入占比','土地财政依赖度','财政支出增长率']
     avail = [i for i in inds if i in df.columns]
     if avail:
         stds = []
@@ -452,7 +437,34 @@ def core_functions(df, counties_coords):
         fig.update_layout(height=360, template='plotly_white')
         st.plotly_chart(fig, use_container_width=True)
 
-    # ------------------ 仪表盘（债务率、自给率、土地依赖度） ------------------
+        st.markdown("#### 🚨 短板指标预警与改进建议")
+        weak_indicators = [avail[i] for i, score in enumerate(stds) if score < 0.4]
+        if weak_indicators:
+            st.error(f"⚠️ 发现 {len(weak_indicators)} 个短板风险指标：")
+            for ind in weak_indicators:
+                st.markdown(f"- **{ind}**")
+                if ind == "财政自给率":
+                    st.markdown("  - 预警：自给率偏低，高度依赖转移支付")
+                    st.markdown("  - 建议：培育税源，优化收入结构")
+                elif ind == "人均财政收入":
+                    st.markdown("  - 预警：人均财力不足，财政实力薄弱")
+                    st.markdown("  - 建议：发展产业，提高经济产出")
+                elif ind == "债务率":
+                    st.markdown("  - 预警：债务压力大，偿债风险高")
+                    st.markdown("  - 建议：严控债务，盘活资产偿债")
+                elif ind == "税收收入占比":
+                    st.markdown("  - 预警：收入质量差，税收贡献不足")
+                    st.markdown("  - 建议：规范征管，提升税收占比")
+                elif ind == "土地财政依赖度":
+                    st.markdown("  - 预警：过度依赖土地出让，结构脆弱")
+                    st.markdown("  - 建议：产业转型，降低土地依赖")
+                elif ind == "财政支出增长率":
+                    st.markdown("  - 预警：支出增长过快，可持续性差")
+                    st.markdown("  - 建议：严控支出，提升使用效益")
+        else:
+            st.success("✅ 所有指标健康，无短板风险！")
+
+    # ------------------ 仪表盘 ------------------
     st.markdown("---")
     st.subheader("🎯 核心指标健康仪表盘")
     a,b,c3 = st.columns(3)
@@ -465,6 +477,26 @@ def core_functions(df, counties_coords):
     with c3:
         fig = go.Figure(go.Indicator(mode="gauge+number", value=cur["土地财政依赖度"], title={'text':"土地依赖度"}, gauge={'axis':{'range':[0,1]}}))
         st.plotly_chart(fig, use_container_width=True)
+
+    # ------------------ 6大指标全维度可视化（已移动到仪表盘后面！） ------------------
+    st.markdown("---")
+    st.subheader("📊 6大指标全维度可视化")
+    t1, t2 = st.tabs(["📈 单县历史趋势", "📊 当年全县对比"])
+    with t1:
+        ct = df[df['县名']==c].sort_values('年份')
+        for idx, i in enumerate(inds):
+            if i not in df.columns: continue
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=ct['年份'], y=ct[i], mode='lines+markers', name=i))
+            fig.update_layout(title=i, height=260, template='plotly_white')
+            st.plotly_chart(fig, use_container_width=True)
+    with t2:
+        yr = df[df['年份']==y].sort_values('综合得分', ascending=False)
+        for i in inds:
+            if i not in df.columns: continue
+            fig = go.Figure(go.Bar(x=yr['县名'], y=yr[i], name=i))
+            fig.update_layout(title=i, height=260, template='plotly_white')
+            st.plotly_chart(fig, use_container_width=True)
 
     # ------------------ 排行榜 ------------------
     st.markdown("---")
@@ -500,13 +532,12 @@ def core_functions(df, counties_coords):
         fig.update_layout(polar=dict(radialaxis=dict(range=[0,1])), height=500)
         st.plotly_chart(fig, use_container_width=True)
 
-    # ------------------ 风险地图（st.map 基于真实经纬度，红黄绿三色点） ------------------
+    # ------------------ 风险地图 ------------------
     st.markdown("---")
     st.subheader("⏰ 风险地图动态时间轴")
     ys = sorted(df['年份'].unique())
     ty = st.slider("选择年份", min(ys), max(ys), max(ys))
     mdf = df[df['年份']==ty].copy()
-    # 颜色映射
     mdf['color'] = mdf['预警等级'].map({'绿灯（健康）':'#00FF00','黄灯（关注）':'#FFCC00','红灯（高风险）':'#FF0000'})
     mdf[['lon','lat']] = mdf['县名'].apply(lambda x: pd.Series(counties_coords.get(x, (106,30))))
     st.map(mdf, latitude='lat', longitude='lon', color='color', zoom=4)
