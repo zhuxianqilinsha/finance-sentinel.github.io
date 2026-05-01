@@ -20,11 +20,24 @@ st.set_page_config(page_title="县级财政健康智能检测平台", page_icon=
 def to_numeric_series(s):
     return pd.to_numeric(s.astype(str).str.replace('%', '').str.replace(',', '').str.strip(), errors='coerce')
 
+# ------------------ 百分比列自动转换为小数比率 ------------------
+def adjust_percentage_columns(df):
+    """将存储为百分比（如80.5表示80.5%）的指标转换为小数比率（0.805）"""
+    if '债务率' in df.columns and df['债务率'].max(skipna=True) > 10:
+        df['债务率'] = df['债务率'] / 100.0
+    if '财政自给率' in df.columns and df['财政自给率'].max(skipna=True) > 2:
+        df['财政自给率'] = df['财政自给率'] / 100.0
+    if '土地财政依赖度' in df.columns and df['土地财政依赖度'].max(skipna=True) > 2:
+        df['土地财政依赖度'] = df['土地财政依赖度'] / 100.0
+    if '税收收入占比' in df.columns and df['税收收入占比'].max(skipna=True) > 2:
+        df['税收收入占比'] = df['税收收入占比'] / 100.0
+    return df
+
 # ------------------ 数据加载（6指标完整版 + 自动列名映射） ------------------
 @st.cache_data
 def load_data():
-    indicators_path = "30个县域2020-2024年财政6个指标数据.csv"
-    score_path = "财政得分矩阵_带三等级预警_含分位数.csv"
+    indicators_path = r"C:\Users\22652\Desktop\财政哨兵\30个县域2020-2024年财政6个指标数据.csv"
+    score_path = r"C:\Users\22652\Desktop\财政哨兵\财政得分矩阵_带三等级预警_含分位数.csv"
 
     def read_with_encoding(path):
         for enc in ['gbk', 'gb2312', 'utf-8-sig', 'utf-8']:
@@ -116,6 +129,9 @@ def load_data():
     icon_map = {'绿灯（健康）': '🟢', '黄灯（关注）': '🟡', '红灯（高风险）': '🔴'}
     df['预警图标'] = df['预警等级'].map(icon_map)
 
+    # 修正百分比单位
+    df = adjust_percentage_columns(df)
+
     counties_coords = {
         "昆山": (120.95, 31.39), "江阴": (120.27, 31.91), "义乌": (120.06, 29.31),
         "晋江": (118.56, 24.78), "荣成": (122.42, 37.16), "常熟": (120.74, 31.64),
@@ -131,18 +147,15 @@ def load_data():
 
     return df, counties_coords
 
-# ------------------ 预警原因生成（修复版：绿灯只显示健康） ------------------
+# ------------------ 预警原因生成 ------------------
 def generate_warning_reasons(row):
     reasons, suggestions = [], []
     level = row['预警等级']
-
-    # 绿灯：直接返回健康，不判断指标
     if "绿灯" in level:
         reasons.append("✅ 财政运行稳健，主要指标均处于健康区间")
         suggestions.append("持续优化财政结构，保持高质量发展")
         return reasons, suggestions
 
-    # 黄灯/红灯：正常检测风险
     debt = row.get('债务率', 0)
     if pd.notna(debt) and debt > 1.2:
         reasons.append("债务率超过120%警戒线")
@@ -335,7 +348,7 @@ def usage_guide():
     st.success("✅ 指南使用完毕，祝您使用愉快！")
     st.info("💡 如需进一步分析，可在核心功能中切换县域与年份。")
 
-# ------------------ 核心功能（已按你要求调整顺序） ------------------
+# ------------------ 核心功能（含修正后的仪表盘，兼容所有plotly版本） ------------------
 def core_functions(df, counties_coords):
     counties = sorted(df['县名'].unique())
     years = sorted(df['年份'].unique(), reverse=True)
@@ -464,21 +477,77 @@ def core_functions(df, counties_coords):
         else:
             st.success("✅ 所有指标健康，无短板风险！")
 
-    # ------------------ 仪表盘 ------------------
+    # ------------------ 核心指标健康仪表盘（修正版：完全兼容） ------------------
     st.markdown("---")
     st.subheader("🎯 核心指标健康仪表盘")
-    a,b,c3 = st.columns(3)
-    with a:
-        fig = go.Figure(go.Indicator(mode="gauge+number", value=cur["债务率"], title={'text':"债务率"}, gauge={'axis':{'range':[0,2]}}))
-        st.plotly_chart(fig, use_container_width=True)
-    with b:
-        fig = go.Figure(go.Indicator(mode="gauge+number", value=cur["财政自给率"], title={'text':"财政自给率"}, gauge={'axis':{'range':[0,1]}}))
-        st.plotly_chart(fig, use_container_width=True)
-    with c3:
-        fig = go.Figure(go.Indicator(mode="gauge+number", value=cur["土地财政依赖度"], title={'text':"土地依赖度"}, gauge={'axis':{'range':[0,1]}}))
-        st.plotly_chart(fig, use_container_width=True)
 
-    # ------------------ 6大指标全维度可视化（已移动到仪表盘后面！） ------------------
+    # 转换为百分比值
+    debt_pct = cur["债务率"] * 100 if pd.notna(cur["债务率"]) else 0
+    self_pct = cur["财政自给率"] * 100 if pd.notna(cur["财政自给率"]) else 0
+    land_pct = cur["土地财政依赖度"] * 100 if pd.notna(cur["土地财政依赖度"]) else 0
+
+    col_a, col_b, col_c = st.columns(3)
+
+    with col_a:
+        # 债务率：量程0~500%，警戒线120%
+        fig_debt = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=debt_pct,
+            title={"text": "债务率 (%)"},
+            gauge={
+                'axis': {'range': [0, 500]},
+                'bar': {'color': "#1f77b4"},
+                'steps': [
+                    {'range': [0, 120], 'color': "lightgreen"},
+                    {'range': [120, 200], 'color': "orange"},
+                    {'range': [200, 500], 'color': "red"}],
+                'threshold': {
+                    'line': {'color': "black", 'width': 2},
+                    'thickness': 0.75,
+                    'value': 120
+                }
+            }
+        ))
+        fig_debt.update_layout(height=280)
+        st.plotly_chart(fig_debt, use_container_width=True)
+
+    with col_b:
+        # 财政自给率：量程0~100%
+        fig_self = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=self_pct,
+            title={"text": "财政自给率 (%)"},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "#2ca02c"},
+                'steps': [
+                    {'range': [0, 40], 'color': "red"},
+                    {'range': [40, 60], 'color': "orange"},
+                    {'range': [60, 100], 'color': "lightgreen"}]
+            }
+        ))
+        fig_self.update_layout(height=280)
+        st.plotly_chart(fig_self, use_container_width=True)
+
+    with col_c:
+        # 土地依赖度：量程0~200%
+        fig_land = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=land_pct,
+            title={"text": "土地财政依赖度 (%)"},
+            gauge={
+                'axis': {'range': [0, 200]},
+                'bar': {'color': "#d62728"},
+                'steps': [
+                    {'range': [0, 30], 'color': "lightgreen"},
+                    {'range': [30, 50], 'color': "orange"},
+                    {'range': [50, 200], 'color': "red"}]
+            }
+        ))
+        fig_land.update_layout(height=280)
+        st.plotly_chart(fig_land, use_container_width=True)
+
+    # ------------------ 6大指标全维度可视化（百分比类指标显示为%） ------------------
     st.markdown("---")
     st.subheader("📊 6大指标全维度可视化")
     t1, t2 = st.tabs(["📈 单县历史趋势", "📊 当年全县对比"])
@@ -486,16 +555,29 @@ def core_functions(df, counties_coords):
         ct = df[df['县名']==c].sort_values('年份')
         for idx, i in enumerate(inds):
             if i not in df.columns: continue
+            # 对于百分比类指标，显示为百分比数值（×100）
+            if i in ['债务率','财政自给率','土地财政依赖度','税收收入占比']:
+                show_vals = ct[i] * 100
+                ytitle = f"{i} (%)"
+            else:
+                show_vals = ct[i]
+                ytitle = i
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=ct['年份'], y=ct[i], mode='lines+markers', name=i))
-            fig.update_layout(title=i, height=260, template='plotly_white')
+            fig.add_trace(go.Scatter(x=ct['年份'], y=show_vals, mode='lines+markers', name=i))
+            fig.update_layout(title=ytitle, height=260, template='plotly_white')
             st.plotly_chart(fig, use_container_width=True)
     with t2:
         yr = df[df['年份']==y].sort_values('综合得分', ascending=False)
         for i in inds:
             if i not in df.columns: continue
-            fig = go.Figure(go.Bar(x=yr['县名'], y=yr[i], name=i))
-            fig.update_layout(title=i, height=260, template='plotly_white')
+            if i in ['债务率','财政自给率','土地财政依赖度','税收收入占比']:
+                show_vals = yr[i] * 100
+                ytitle = f"{i} (%)"
+            else:
+                show_vals = yr[i]
+                ytitle = i
+            fig = go.Figure(go.Bar(x=yr['县名'], y=show_vals, name=i))
+            fig.update_layout(title=ytitle, height=260, template='plotly_white')
             st.plotly_chart(fig, use_container_width=True)
 
     # ------------------ 排行榜 ------------------
