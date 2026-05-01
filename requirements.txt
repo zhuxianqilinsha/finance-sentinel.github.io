@@ -1,4 +1,16 @@
-streamlit
-pandas
-plotly
-numpy
+# 核心运行依赖
+streamlit>=1.28.0
+pandas>=2.0.0
+numpy>=1.24.0
+
+# 数据可视化
+plotly>=5.15.0
+
+# 侧边栏菜单
+streamlit-option-menu>=0.3.6
+
+# 图片处理
+Pillow>=10.0.0
+
+# 报表生成
+reportlab>=4.0.0
