@@ -1,16 +1,21 @@
-# 核心运行依赖
-streamlit>=1.28.0
+# 核心框架
+streamlit>=1.30.0
+
+# 数据处理
 pandas>=2.0.0
 numpy>=1.24.0
 
-# 数据可视化
-plotly>=5.15.0
+# 可视化
+plotly>=5.18.0
 
-# 侧边栏菜单
+# 菜单组件
 streamlit-option-menu>=0.3.6
 
-# 图片处理
-Pillow>=10.0.0
+# 图像处理（对应PIL）
+pillow>=10.0.0
 
-# 报表生成
+# 时间序列预测（ExponentialSmoothing依赖）
+statsmodels>=0.14.0
+
+# PDF生成（reportlab）
 reportlab>=4.0.0
