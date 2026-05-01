@@ -36,8 +36,8 @@ def adjust_percentage_columns(df):
 # ------------------ 数据加载（6指标完整版 + 自动列名映射） ------------------
 @st.cache_data
 def load_data():
-    indicators_path = r"C:\Users\22652\Desktop\财政哨兵\30个县域2020-2024年财政6个指标数据.csv"
-    score_path = r"C:\Users\22652\Desktop\财政哨兵\财政得分矩阵_带三等级预警_含分位数.csv"
+    indicators_path = "30个县域2020-2024年财政6个指标数据.csv"
+    score_path = "财政得分矩阵_带三等级预警_含分位数.csv"
 
     def read_with_encoding(path):
         for enc in ['gbk', 'gb2312', 'utf-8-sig', 'utf-8']:
