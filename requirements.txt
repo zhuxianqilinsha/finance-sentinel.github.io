@@ -19,3 +19,4 @@ statsmodels>=0.14.0
 
 # PDF生成（reportlab）
 reportlab>=4.0.0
+kaleido
