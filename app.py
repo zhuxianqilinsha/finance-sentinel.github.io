@@ -540,7 +540,7 @@ def usage_guide():
         """)
     st.success("✅ 指南使用完毕")
 
-# ------------------ 核心功能（完整保留，包括上年排名环比） ------------------
+# ------------------ 核心功能（完整保留，包括上年排名环比；已移除短板警戒线；仪表盘已调整样式） ------------------
 def core_functions(df, counties_coords):
     counties = sorted(df['县名'].unique())
     years = sorted(df['年份'].unique(), reverse=True)
@@ -647,7 +647,7 @@ def core_functions(df, counties_coords):
     fig.update_layout(height=360, template='plotly_white')
     st.plotly_chart(fig, use_container_width=True)
 
-    # 短板诊断
+    # 短板诊断（已移除警戒线）
     st.markdown("---")
     st.subheader("🔬 指标体系诊断 - 短板定位")
     inds = ['财政自给率','债务率','人均财政收入','税收收入占比','土地财政依赖度','财政支出增长率']
@@ -673,7 +673,7 @@ def core_functions(df, counties_coords):
                     stds.append((v-mi)/(ma-mi))
         colors = ['red' if s<0.4 else '#1976d2' for s in stds]
         fig_bar = go.Figure(go.Bar(x=avail, y=stds, marker_color=colors))
-        fig_bar.add_hline(y=0.4, line_dash="dash", line_color="orange", annotation_text="警戒线")
+        # 移除警戒线（不再添加 add_hline）
         fig_bar.update_layout(height=360, template='plotly_white')
         st.plotly_chart(fig_bar, use_container_width=True)
 
@@ -735,7 +735,7 @@ def core_functions(df, counties_coords):
         else:
             st.success("模拟情景下财政健康仍保持良好区间")
 
-    # 核心仪表盘
+    # 核心仪表盘（已调整为与参考代码一致）
     st.markdown("---")
     st.subheader("🎯 核心指标健康仪表盘")
     debt_pct = cur["债务率"] * 100 if pd.notna(cur["债务率"]) else 0
@@ -743,22 +743,56 @@ def core_functions(df, counties_coords):
     land_pct = cur["土地财政依赖度"] * 100 if pd.notna(cur["土地财政依赖度"]) else 0
     col_a, col_b, col_c = st.columns(3)
     with col_a:
-        fig_debt = go.Figure(go.Indicator(mode="gauge+number", value=debt_pct, title={"text": "债务率 (%)"},
-            gauge={'axis': {'range': [0, 200]}, 'bar': {'color': "#1f77b4"},
-                   'steps': [{'range': [0, 120], 'color': "lightgreen"}, {'range': [120, 200], 'color': "orange"}],
-                   'threshold': {'value': 120, 'line': {'color': "black", 'width': 2}}}))
+        fig_debt = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=debt_pct,
+            title={"text": "债务率 (%)"},
+            gauge={
+                'axis': {'range': [0, 500]},
+                'bar': {'color': "#1f77b4"},
+                'steps': [
+                    {'range': [0, 120], 'color': "lightgreen"},
+                    {'range': [120, 200], 'color': "orange"},
+                    {'range': [200, 500], 'color': "red"}],
+                'threshold': {
+                    'line': {'color': "black", 'width': 2},
+                    'thickness': 0.75,
+                    'value': 120
+                }
+            }
+        ))
         fig_debt.update_layout(height=280)
         st.plotly_chart(fig_debt, use_container_width=True)
     with col_b:
-        fig_self = go.Figure(go.Indicator(mode="gauge+number", value=self_pct, title={"text": "财政自给率 (%)"},
-            gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#2ca02c"},
-                   'steps': [{'range': [0, 40], 'color': "red"}, {'range': [40, 60], 'color': "orange"}, {'range': [60, 100], 'color': "lightgreen"}]}))
+        fig_self = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=self_pct,
+            title={"text": "财政自给率 (%)"},
+            gauge={
+                'axis': {'range': [0, 100]},
+                'bar': {'color': "#2ca02c"},
+                'steps': [
+                    {'range': [0, 40], 'color': "red"},
+                    {'range': [40, 60], 'color': "orange"},
+                    {'range': [60, 100], 'color': "lightgreen"}]
+            }
+        ))
         fig_self.update_layout(height=280)
         st.plotly_chart(fig_self, use_container_width=True)
     with col_c:
-        fig_land = go.Figure(go.Indicator(mode="gauge+number", value=land_pct, title={"text": "土地财政依赖度 (%)"},
-            gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#9b59b6"},
-                   'steps': [{'range': [0, 30], 'color': "lightgreen"}, {'range': [30, 50], 'color': "orange"}, {'range': [50, 100], 'color': "red"}]}))
+        fig_land = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=land_pct,
+            title={"text": "土地财政依赖度 (%)"},
+            gauge={
+                'axis': {'range': [0, 200]},
+                'bar': {'color': "#9b59b6"},
+                'steps': [
+                    {'range': [0, 30], 'color': "lightgreen"},
+                    {'range': [30, 50], 'color': "orange"},
+                    {'range': [50, 200], 'color': "red"}]
+            }
+        ))
         fig_land.update_layout(height=280)
         st.plotly_chart(fig_land, use_container_width=True)
 
