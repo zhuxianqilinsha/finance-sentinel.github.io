@@ -29,35 +29,32 @@ if 'recent_counties' not in st.session_state:
 
 # ------------------ 设置 matplotlib 中文字体（用于PDF） ------------------
 def setup_chinese_font():
-    # 可能的字体文件名列表（按顺序查找）
-    font_candidates = [
-        "NotoSansCJKsc-Regular.otf",   # 您现有的文件
-        "NotoSansCJKsc-Regular.ttf",
-        "SimHei.ttf",
-        "msyh.ttc"
-    ]
-    for font_file in font_candidates:
-        if os.path.exists(font_file):
-            try:
-                font_prop = matplotlib.font_manager.FontProperties(fname=font_file)
-                matplotlib.rcParams['font.family'] = font_prop.get_name()
-                st.success(f"✅ 已加载中文字体：{font_file}")
-                return True
-            except Exception as e:
-                st.warning(f"尝试加载 {font_file} 失败：{e}")
-                continue
-    
-    # 如果本地没有，尝试系统自带中文字体（云环境通常没有，但保留）
-    available_fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
-    chinese_fonts = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC']
-    for candidate in chinese_fonts:
-        if candidate in available_fonts:
-            matplotlib.rcParams['font.family'] = candidate
-            st.info(f"使用系统字体：{candidate}")
+    # 仅使用您提供的字体文件
+    font_file = "NotoSansCJKsc-Regular.otf"
+    if os.path.exists(font_file):
+        try:
+            font_prop = matplotlib.font_manager.FontProperties(fname=font_file)
+            matplotlib.font_manager.fontManager.addfont(font_file)
+            matplotlib.rcParams['font.family'] = font_prop.get_name()
+            matplotlib.rcParams['font.sans-serif'] = [font_prop.get_name()]
+            matplotlib.rcParams['axes.unicode_minus'] = False
+            st.success(f"✅ 已成功加载中文字体：{font_file}")
             return True
-    
-    st.warning("未找到中文字体文件，PDF 报告中的中文可能显示为方框。请将 .otf 或 .ttf 字体文件上传到应用根目录。")
-    return False
+        except Exception as e:
+            st.warning(f"加载字体失败：{e}")
+    else:
+        # 如果指定字体不存在，尝试系统自带中文字体（云环境通常没有）
+        available_fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
+        chinese_fonts = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC']
+        for candidate in chinese_fonts:
+            if candidate in available_fonts:
+                matplotlib.rcParams['font.family'] = candidate
+                st.info(f"使用系统字体：{candidate}")
+                return True
+        st.warning("未找到中文字体文件，PDF 报告中的中文可能显示为方框。请将字体文件 'NotoSansCJKsc-Regular.otf' 上传到应用根目录。")
+        return False
+
+font_ok = setup_chinese_font()
 
 # ------------------ 辅助函数：安全转数值 ------------------
 def to_numeric_series(s):
@@ -65,7 +62,6 @@ def to_numeric_series(s):
 
 # ------------------ 百分比列自动转换为小数比率 ------------------
 def adjust_percentage_columns(df):
-    """将存储为百分比（如80.5表示80.5%）的指标转换为小数比率（0.805）"""
     if '债务率' in df.columns and df['债务率'].max(skipna=True) > 10:
         df['债务率'] = df['债务率'] / 100.0
     if '财政自给率' in df.columns and df['财政自给率'].max(skipna=True) > 2:
@@ -172,8 +168,10 @@ def load_data():
     icon_map = {'绿灯（健康）': '🟢', '黄灯（关注）': '🟡', '红灯（高风险）': '🔴'}
     df['预警图标'] = df['预警等级'].map(icon_map)
 
-    # 修正百分比单位
     df = adjust_percentage_columns(df)
+
+    # ===== 计算上年排名（用于环比变化）=====
+    df['上年排名'] = df.groupby('县名')['排名'].shift(1)
 
     counties_coords = {
         "昆山": (120.95, 31.39), "江阴": (120.27, 31.91), "义乌": (120.06, 29.31),
@@ -229,7 +227,6 @@ def generate_narrative_report(row, hist_df, prev_rank=None):
     level = row['预警等级']
     reasons, suggestions = generate_warning_reasons(row)
     
-    # 得分评价
     if score >= 85:
         score_comment = "财政健康状况优秀"
     elif score >= 70:
@@ -239,10 +236,9 @@ def generate_narrative_report(row, hist_df, prev_rank=None):
     else:
         score_comment = "财政风险显著，急需干预"
     
-    # 排名变化（需要前一年数据）
     rank_change = ""
     if prev_rank is not None:
-        diff = prev_rank - rank  # 正数表示上升
+        diff = prev_rank - rank
         if diff > 0:
             rank_change = f"排名较上年上升{diff}位"
         elif diff < 0:
@@ -250,7 +246,6 @@ def generate_narrative_report(row, hist_df, prev_rank=None):
         else:
             rank_change = "排名与上年持平"
     
-    # 短板叙述
     weak = []
     if row.get('债务率', 0) > 1.2:
         weak.append("债务率")
@@ -259,8 +254,6 @@ def generate_narrative_report(row, hist_df, prev_rank=None):
     if row.get('土地财政依赖度', 0) > 0.4:
         weak.append("土地财政依赖度")
     weak_text = "、".join(weak) if weak else "无显著短板"
-    
-    # 主要建议
     main_suggestion = suggestions[0] if suggestions else "继续保持稳健态势"
     
     report = f"""
@@ -271,7 +264,7 @@ def generate_narrative_report(row, hist_df, prev_rank=None):
 """
     return report
 
-# ------------------ 压力测试得分计算（基于当年分布标准化） ------------------
+# ------------------ 压力测试得分计算 ------------------
 def compute_stress_score(original_row, adjustments, df_year, weights=None):
     if weights is None:
         weights = {
@@ -308,47 +301,32 @@ def compute_stress_score(original_row, adjustments, df_year, weights=None):
     total = sum(score_components.values()) * 100
     return total
 
-# ------------------ 新的丰富 PDF 报告生成（替换原有的 generate_pdf_report） ------------------
+# ------------------ PDF报告生成（丰富版，无警戒线） ------------------
 def generate_pdf_report(county_name, year, cur_row, hist_df, all_df):
-    """
-    生成两页 PDF：
-    第1页：标题、得分排名预警等级、预警原因、改进建议、综合小结
-    第2页：历史综合得分趋势图（含预测）+ 短板诊断柱状图（无警戒线）
-    """
     buffer = BytesIO()
     with PdfPages(buffer) as pdf:
-        # ---------- 第1页：文字评估 ----------
+        # 第1页：文字评估
         fig1, ax1 = plt.subplots(figsize=(8.5, 11))
         ax1.axis('off')
-        
-        # 标题
         ax1.text(0.5, 0.95, f"{county_name}县 {year}年 财政健康评估报告", 
                  transform=ax1.transAxes, fontsize=22, ha='center', weight='bold')
-        
-        # 得分、排名、预警等级
         score = cur_row['综合得分']
         rank = cur_row['排名文字']
         warning = cur_row['预警等级']
         ax1.text(0.1, 0.87, f"综合得分：{score:.1f} 分", fontsize=16, weight='bold')
         ax1.text(0.1, 0.82, f"全县排名：{rank}", fontsize=16)
         ax1.text(0.1, 0.77, f"预警等级：{warning}", fontsize=16)
-        
-        # 详细预警原因（使用原函数生成，保证风格一致）
         reasons, suggestions = generate_warning_reasons(cur_row)
         ax1.text(0.1, 0.70, "一、预警原因", fontsize=16, weight='bold')
         y = 0.65
         for r in reasons:
             ax1.text(0.12, y, f"• {r}", fontsize=12, transform=ax1.transAxes, wrap=True)
             y -= 0.06
-        
-        # 改进建议
         ax1.text(0.1, y-0.04, "二、改进建议", fontsize=16, weight='bold')
         y -= 0.10
         for s in suggestions:
             ax1.text(0.12, y, f"• {s}", fontsize=12, transform=ax1.transAxes, wrap=True)
             y -= 0.06
-        
-        # 新增：综合小结（根据预警等级动态生成）
         ax1.text(0.1, y-0.05, "三、综合财政健康评价小结", fontsize=16, weight='bold')
         y -= 0.10
         if "绿灯" in warning:
@@ -358,19 +336,13 @@ def generate_pdf_report(county_name, year, cur_row, hist_df, all_df):
         else:
             summary = "该县财政风险较高，多项指标超出警戒线。需立即启动风险处置机制，严格约束债务增长，提升财政收入质量，优化支出结构。"
         ax1.text(0.12, y, summary, fontsize=12, transform=ax1.transAxes, wrap=True)
-        y -= 0.10
-        
-        # 报告生成时间
         ax1.text(0.1, 0.05, f"报告生成时间：{time.strftime('%Y-%m-%d %H:%M:%S')}", 
                  transform=ax1.transAxes, fontsize=10, color='gray')
-        
         pdf.savefig(fig1, bbox_inches='tight')
         plt.close(fig1)
         
-        # ---------- 第2页：历史趋势图 + 短板诊断柱状图（无警戒线） ----------
+        # 第2页：趋势图 + 短板图（无警戒线）
         fig2, (ax2, ax3) = plt.subplots(2, 1, figsize=(8.5, 10))
-        
-        # 子图1：历史趋势图（含预测）
         years = hist_df['年份'].values
         scores = hist_df['综合得分'].values
         ax2.plot(years, scores, marker='o', color='#2a5298', linewidth=2, label='实际得分')
@@ -400,10 +372,8 @@ def generate_pdf_report(county_name, year, cur_row, hist_df, all_df):
         ax2.set_ylabel("综合得分")
         ax2.grid(True, linestyle='--', alpha=0.6)
         ax2.legend(loc='best')
-        # 添加趋势解读文字
         ax2.text(0.02, -0.15, f"趋势解读：{forecast_msg}", transform=ax2.transAxes, fontsize=10, color='dimgray')
         
-        # 子图2：短板诊断柱状图（无警戒线）
         inds = ['财政自给率','债务率','人均财政收入','税收收入占比','土地财政依赖度','财政支出增长率']
         avail_inds = [i for i in inds if i in all_df.columns]
         std_scores = []
@@ -430,10 +400,8 @@ def generate_pdf_report(county_name, year, cur_row, hist_df, all_df):
         ax3.set_ylabel("标准化得分")
         ax3.set_ylim(0, 1)
         plt.setp(ax3.get_xticklabels(), rotation=45, ha='right')
-        # 添加说明文字
         ax3.text(0.02, -0.15, "注：红色柱表示该指标标准化得分低于0.4，属于短板，需重点关注。", 
                  transform=ax3.transAxes, fontsize=10, color='gray')
-        
         plt.tight_layout()
         pdf.savefig(fig2, bbox_inches='tight')
         plt.close(fig2)
@@ -441,10 +409,7 @@ def generate_pdf_report(county_name, year, cur_row, hist_df, all_df):
     buffer.seek(0)
     return buffer
 
-# ------------------ 平台介绍、使用指南、核心功能（仅PDF调用部分修改） ------------------
-# 以下 platform_intro, usage_guide, core_functions 与原始代码完全相同，只有生成PDF的按钮部分改为调用新的函数
-# 为了清晰，我将完整复制原始 core_functions 并微调 PDF 生成部分。其他内容不变。
-
+# ------------------ 平台介绍 ------------------
 def platform_intro():
     st.markdown("""
     <style>
@@ -566,50 +531,24 @@ def usage_guide():
         """)
     with st.expander("💡 高级功能说明"):
         st.markdown("""
-        **1. 县域对比分析**
-        - 可同时选择多个县域进行横向对比
-        - 自动生成雷达图、趋势图、得分对比卡片
-
-        **2. 短板诊断**
-        - 自动识别薄弱指标并给出改进建议
-        - 标准化得分越低，风险越高
-
-        **3. 风险地图**
-        - 支持逐年滑动查看空间演变
-        - 绿色=健康，橙色=关注，红色=高风险
-
-        **4. PDF报告**
-        - 一键生成完整评估报告
-        - 包含得分、排名、预警、建议、趋势图、短板图、综合小结
-
-        **5. 趋势预测** (新增)
-        - 基于历史数据预测未来2年综合得分
-        - 虚线显示，辅助预判风险
-
-        **6. 智能文本报告** (新增)
-        - 自动生成自然语言评价摘要
-        - 包含排名变化、短板解读
-
-        **7. 压力测试** (新增)
-        - 手动调整关键指标，模拟得分变化
-        - 支持决策预演
+        **1. 县域对比分析** - 多县域雷达图、趋势对比
+        **2. 短板诊断** - 自动识别薄弱指标并给出建议
+        **3. 风险地图** - 逐年滑动查看空间演变
+        **4. PDF报告** - 完整评估报告含趋势图、短板图、综合小结
+        **5. 趋势预测** - 基于历史数据预测未来2年得分
+        **6. 压力测试** - 调整关键指标模拟得分变化
         """)
+    st.success("✅ 指南使用完毕")
 
-    st.success("✅ 指南使用完毕，祝您使用愉快！")
-    st.info("💡 如需进一步分析，可在核心功能中切换县域与年份。")
-
+# ------------------ 核心功能（完整保留，包括上年排名环比） ------------------
 def core_functions(df, counties_coords):
     counties = sorted(df['县名'].unique())
     years = sorted(df['年份'].unique(), reverse=True)
 
     with st.sidebar:
         st.markdown("### 🎛️ 控制面板")
-        
-        # 数据筛选
-        st.markdown("**📅 数据筛选**")
         y = st.selectbox("年份", years, index=0 if st.session_state.last_year is None else years.index(st.session_state.last_year) if st.session_state.last_year in years else 0)
         c = st.selectbox("县域", counties, index=counties.index(st.session_state.last_county) if st.session_state.last_county in counties else 0)
-        
         if c != st.session_state.last_county:
             if c in st.session_state.recent_counties:
                 st.session_state.recent_counties.remove(c)
@@ -627,7 +566,6 @@ def core_functions(df, counties_coords):
                     st.rerun()
             st.markdown("---")
 
-        # ---------- 报告导出（使用新的丰富 PDF） ----------
         st.markdown("**📄 报告导出**")
         if st.button("📄 生成PDF报告", use_container_width=True):
             with st.status("生成报告中，请稍候...", expanded=True) as status:
@@ -646,20 +584,18 @@ def core_functions(df, counties_coords):
             st.success("缓存已清除，页面将重新加载数据...")
             st.rerun()
 
-    # 获取当前选中的县数据
     cur = df[(df['年份']==y) & (df['县名']==c)]
     if cur.empty:
         st.warning("无数据")
         return
     cur = cur.iloc[0]
-
     hist = df[df['县名']==c].sort_values('年份').copy()
     prev_rank = None
     prev_year_data = hist[hist['年份'] == y-1]
     if not prev_year_data.empty:
         prev_rank = prev_year_data.iloc[0]['排名']
 
-    # 评分卡片 + 预警卡片（保持不变）
+    # 评分卡片
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"""
@@ -669,16 +605,11 @@ def core_functions(df, counties_coords):
             </div>
             <div style="display:flex;align-items:center;margin-bottom:1.8rem;">
                 <span style="font-size:5.2rem;font-weight:700;color:#d32f2f;line-height:1;margin-right:2.4rem;">{cur['综合得分']:.2f}</span>
-                <div>
-                    <span style="background:#e3f2fd;color:#1976d2;padding:0.5rem 1.2rem;border-radius:14px;font-size:1.25rem;font-weight:500;">全县排名 {cur['排名']} 名</span>
-                </div>
+                <div><span style="background:#e3f2fd;color:#1976d2;padding:0.5rem 1.2rem;border-radius:14px;font-size:1.25rem;">全县排名 {cur['排名']} 名</span></div>
             </div>
-            <div style="width:100%;height:14px;background:#e0e0e0;border-radius:8px;">
-                <div style="width:{cur['综合得分']:.0f}%;height:100%;background:#1976d2;border-radius:8px;"></div>
-            </div>
+            <div style="width:100%;height:14px;background:#e0e0e0;border-radius:8px;"><div style="width:{cur['综合得分']:.0f}%;height:100%;background:#1976d2;border-radius:8px;"></div></div>
         </div>
         """, unsafe_allow_html=True)
-
     with col2:
         level = cur['预警等级']
         icon = cur['预警图标']
@@ -686,18 +617,15 @@ def core_functions(df, counties_coords):
         bg = "#2e7d32" if "绿灯" in level else "#ed6c02" if "黄灯" in level else "#d32f2f"
         st.markdown(f"""
         <div style="background:{bg};border-radius:18px;padding:2.2rem;color:white;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
-            <h2 style="margin:0 0 1rem 0;font-size:2rem;">{icon} 风险预警 | {level}</h2>
-            <ul style="font-size:1.15rem;line-height:1.8;padding-left:1.2rem;">
-                {''.join([f'<li>{x}</li>' for x in reasons])}
-            </ul>
+            <h2 style="margin:0 0 1rem 0;">{icon} 风险预警 | {level}</h2>
+            <ul style="font-size:1.15rem;">{''.join([f'<li>{x}</li>' for x in reasons])}</ul>
         </div>
         """, unsafe_allow_html=True)
 
     with st.expander("📑 智能文本报告（点击展开）"):
-        narrative = generate_narrative_report(cur, hist, prev_rank)
-        st.markdown(narrative)
+        st.markdown(generate_narrative_report(cur, hist, prev_rank))
 
-    # 历史趋势 + 预测（保持不变）
+    # 历史趋势 + 预测
     st.markdown("---")
     st.subheader("📈 历史趋势分析")
     fig = go.Figure()
@@ -707,20 +635,19 @@ def core_functions(df, counties_coords):
             model = ExponentialSmoothing(hist['综合得分'], trend='add', seasonal=None).fit()
             forecast = model.forecast(steps=2)
             future_years = [hist['年份'].max() + i for i in range(1, 3)]
-            fig.add_trace(go.Scatter(x=future_years, y=forecast, mode='lines+markers',
-                                     line=dict(dash='dot', color='red'), name='预测值'))
+            fig.add_trace(go.Scatter(x=future_years, y=forecast, mode='lines+markers', line=dict(dash='dot', color='red'), name='预测值'))
             if forecast.iloc[-1] < hist['综合得分'].iloc[-1]:
                 st.warning("⚠️ 预测显示未来两年综合得分可能下降，建议关注财政可持续性。")
             else:
                 st.info("📈 预测显示未来两年综合得分有望保持稳定或上升。")
         except Exception as e:
-            st.caption(f"预测模型拟合失败（数据波动较大）：{e}")
+            st.caption(f"预测模型拟合失败：{e}")
     else:
         st.caption("数据不足4年，无法进行趋势预测。")
     fig.update_layout(height=360, template='plotly_white')
     st.plotly_chart(fig, use_container_width=True)
 
-    # 短板诊断（保持不变）
+    # 短板诊断
     st.markdown("---")
     st.subheader("🔬 指标体系诊断 - 短板定位")
     inds = ['财政自给率','债务率','人均财政收入','税收收入占比','土地财政依赖度','财政支出增长率']
@@ -745,9 +672,10 @@ def core_functions(df, counties_coords):
                 else:
                     stds.append((v-mi)/(ma-mi))
         colors = ['red' if s<0.4 else '#1976d2' for s in stds]
-        fig = go.Figure(go.Bar(x=avail, y=stds, marker_color=colors))
-        fig.update_layout(height=360, template='plotly_white')
-        st.plotly_chart(fig, use_container_width=True)
+        fig_bar = go.Figure(go.Bar(x=avail, y=stds, marker_color=colors))
+        fig_bar.add_hline(y=0.4, line_dash="dash", line_color="orange", annotation_text="警戒线")
+        fig_bar.update_layout(height=360, template='plotly_white')
+        st.plotly_chart(fig_bar, use_container_width=True)
 
         st.markdown("#### 🚨 短板指标预警与改进建议")
         weak_indicators = [avail[i] for i, score in enumerate(stds) if score < 0.4]
@@ -756,36 +684,29 @@ def core_functions(df, counties_coords):
             for ind in weak_indicators:
                 st.markdown(f"- **{ind}**")
                 if ind == "财政自给率":
-                    st.markdown("  - 预警：自给率偏低，高度依赖转移支付")
-                    st.markdown("  - 建议：培育税源，优化收入结构")
+                    st.markdown("  - 预警：自给率偏低，高度依赖转移支付\n  - 建议：培育税源，优化收入结构")
                 elif ind == "人均财政收入":
-                    st.markdown("  - 预警：人均财力不足，财政实力薄弱")
-                    st.markdown("  - 建议：发展产业，提高经济产出")
+                    st.markdown("  - 预警：人均财力不足，财政实力薄弱\n  - 建议：发展产业，提高经济产出")
                 elif ind == "债务率":
-                    st.markdown("  - 预警：债务压力大，偿债风险高")
-                    st.markdown("  - 建议：严控债务，盘活资产偿债")
+                    st.markdown("  - 预警：债务压力大，偿债风险高\n  - 建议：严控债务，盘活资产偿债")
                 elif ind == "税收收入占比":
-                    st.markdown("  - 预警：收入质量差，税收贡献不足")
-                    st.markdown("  - 建议：规范征管，提升税收占比")
+                    st.markdown("  - 预警：收入质量差，税收贡献不足\n  - 建议：规范征管，提升税收占比")
                 elif ind == "土地财政依赖度":
-                    st.markdown("  - 预警：过度依赖土地出让，结构脆弱")
-                    st.markdown("  - 建议：产业转型，降低土地依赖")
+                    st.markdown("  - 预警：过度依赖土地出让，结构脆弱\n  - 建议：产业转型，降低土地依赖")
                 elif ind == "财政支出增长率":
-                    st.markdown("  - 预警：支出增长过快，可持续性差")
-                    st.markdown("  - 建议：严控支出，提升使用效益")
+                    st.markdown("  - 预警：支出增长过快，可持续性差\n  - 建议：严控支出，提升使用效益")
         else:
             st.success("✅ 所有指标健康，无短板风险！")
 
-    # 压力测试（保持不变）
+    # 压力测试
     with st.expander("⚙️ 压力测试 - 调整指标模拟"):
-        st.markdown("调整以下关键指标的相对变化（倍数），实时观察综合得分模拟值。")
         col_a, col_b, col_c = st.columns(3)
         with col_a:
-            debt_factor = st.slider("债务率调整倍数", 0.5, 1.5, 1.0, 0.05, format="%.2f")
+            debt_factor = st.slider("债务率调整倍数", 0.5, 1.5, 1.0, 0.05)
         with col_b:
-            self_factor = st.slider("财政自给率调整倍数", 0.5, 1.5, 1.0, 0.05, format="%.2f")
+            self_factor = st.slider("财政自给率调整倍数", 0.5, 1.5, 1.0, 0.05)
         with col_c:
-            land_factor = st.slider("土地依赖度调整倍数", 0.5, 1.5, 1.0, 0.05, format="%.2f")
+            land_factor = st.slider("土地依赖度调整倍数", 0.5, 1.5, 1.0, 0.05)
         adjustments = {'债务率': debt_factor, '财政自给率': self_factor, '土地财政依赖度': land_factor}
         df_year = df[df['年份']==y]
         stress_score = compute_stress_score(cur, adjustments, df_year)
@@ -808,13 +729,13 @@ def core_functions(df, counties_coords):
         - 模拟预警等级：{stress_level}  
         """)
         if stress_score < 60:
-            st.error("⚠️ 模拟情景下财政健康落入高风险区间，请审慎评估相关决策。")
+            st.error("⚠️ 模拟情景下财政健康落入高风险区间")
         elif stress_score < 75:
-            st.warning("⚠️ 模拟情景下财政健康承压，建议提前制定应对预案。")
+            st.warning("⚠️ 模拟情景下财政健康承压")
         else:
-            st.success("模拟情景下财政健康仍保持良好区间。")
+            st.success("模拟情景下财政健康仍保持良好区间")
 
-    # 核心指标健康仪表盘（保持不变）
+    # 核心仪表盘
     st.markdown("---")
     st.subheader("🎯 核心指标健康仪表盘")
     debt_pct = cur["债务率"] * 100 if pd.notna(cur["债务率"]) else 0
@@ -823,9 +744,9 @@ def core_functions(df, counties_coords):
     col_a, col_b, col_c = st.columns(3)
     with col_a:
         fig_debt = go.Figure(go.Indicator(mode="gauge+number", value=debt_pct, title={"text": "债务率 (%)"},
-            gauge={'axis': {'range': [0, 500]}, 'bar': {'color': "#1f77b4"},
-                   'steps': [{'range': [0, 120], 'color': "lightgreen"}, {'range': [120, 200], 'color': "orange"}, {'range': [200, 500], 'color': "red"}],
-                   'threshold': {'line': {'color': "black", 'width': 2}, 'thickness': 0.75, 'value': 120}}))
+            gauge={'axis': {'range': [0, 200]}, 'bar': {'color': "#1f77b4"},
+                   'steps': [{'range': [0, 120], 'color': "lightgreen"}, {'range': [120, 200], 'color': "orange"}],
+                   'threshold': {'value': 120, 'line': {'color': "black", 'width': 2}}}))
         fig_debt.update_layout(height=280)
         st.plotly_chart(fig_debt, use_container_width=True)
     with col_b:
@@ -836,12 +757,12 @@ def core_functions(df, counties_coords):
         st.plotly_chart(fig_self, use_container_width=True)
     with col_c:
         fig_land = go.Figure(go.Indicator(mode="gauge+number", value=land_pct, title={"text": "土地财政依赖度 (%)"},
-            gauge={'axis': {'range': [0, 200]}, 'bar': {'color': "#9b59b6"},
-                   'steps': [{'range': [0, 30], 'color': "lightgreen"}, {'range': [30, 50], 'color': "orange"}, {'range': [50, 200], 'color': "red"}]}))
+            gauge={'axis': {'range': [0, 100]}, 'bar': {'color': "#9b59b6"},
+                   'steps': [{'range': [0, 30], 'color': "lightgreen"}, {'range': [30, 50], 'color': "orange"}, {'range': [50, 100], 'color': "red"}]}))
         fig_land.update_layout(height=280)
         st.plotly_chart(fig_land, use_container_width=True)
 
-    # 6大指标全维度可视化（保持不变）
+    # 6大指标全维度可视化
     st.markdown("---")
     st.subheader("📊 6大指标全维度可视化")
     t1, t2 = st.tabs(["📈 单县历史趋势", "📊 当年全县对比"])
@@ -855,10 +776,10 @@ def core_functions(df, counties_coords):
             else:
                 show_vals = ct[i]
                 ytitle = i
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=ct['年份'], y=show_vals, mode='lines+markers', name=i))
-            fig.update_layout(title=ytitle, height=260, template='plotly_white')
-            st.plotly_chart(fig, use_container_width=True)
+            fig_line = go.Figure()
+            fig_line.add_trace(go.Scatter(x=ct['年份'], y=show_vals, mode='lines+markers', name=i))
+            fig_line.update_layout(title=ytitle, height=260, template='plotly_white')
+            st.plotly_chart(fig_line, use_container_width=True)
     with t2:
         yr = df[df['年份']==y].sort_values('综合得分', ascending=False)
         for i in inds:
@@ -869,23 +790,39 @@ def core_functions(df, counties_coords):
             else:
                 show_vals = yr[i]
                 ytitle = i
-            fig = go.Figure(go.Bar(x=yr['县名'], y=show_vals, name=i))
-            fig.update_layout(title=ytitle, height=260, template='plotly_white')
-            st.plotly_chart(fig, use_container_width=True)
+            fig_bar = go.Figure(go.Bar(x=yr['县名'], y=show_vals, name=i))
+            fig_bar.update_layout(title=ytitle, height=260, template='plotly_white')
+            st.plotly_chart(fig_bar, use_container_width=True)
 
-    # 排行榜（保持不变）
+    # 排行榜（含环比变化，使用上年排名）
     st.markdown("---")
     st.subheader("🏅 当年县域综合得分排行榜")
-    rk = df[df['年份']==y].sort_values('综合得分', ascending=False)
-    st.dataframe(rk[['排名','县名','综合得分','预警等级']], hide_index=True, use_container_width=True)
+    st.caption("📊 排名变化说明：↑N 表示较上年上升 N 位，↓N 表示下降 N 位，“—”表示无上年数据。")
+    rk = df[df['年份']==y].sort_values('综合得分', ascending=False).copy()
+    def rank_change_text(row):
+        cur_rank = row['排名']
+        prev_rank = row['上年排名']
+        if pd.isna(prev_rank):
+            return "—"
+        diff = prev_rank - cur_rank
+        if diff > 0:
+            return f"↑{diff}"
+        elif diff < 0:
+            return f"↓{-diff}"
+        else:
+            return "持平"
+    rk['较上年变化'] = rk.apply(rank_change_text, axis=1)
+    display_df = rk[['排名', '县名', '综合得分', '预警等级', '较上年变化']].copy()
+    display_df['综合得分'] = display_df['综合得分'].apply(lambda x: f"{x:.2f}")
+    st.dataframe(display_df, hide_index=True, use_container_width=True)
 
-    # 雷达对比（保持不变）
+    # 雷达对比
     st.markdown("---")
     st.subheader("🔄 多县域指标雷达对比")
     cmp = st.multiselect("选择2-4个对比县域", counties, default=counties[:2])
-    if len(cmp)>=2:
+    if len(cmp) >= 2:
         d = df[(df['年份']==y) & (df['县名'].isin(cmp))]
-        fig = go.Figure()
+        fig_radar = go.Figure()
         for cy in cmp:
             r = d[d['县名']==cy].iloc[0]
             vs = []
@@ -896,18 +833,18 @@ def core_functions(df, counties_coords):
                     continue
                 yv = df[df['年份']==y][i].dropna()
                 mi, ma = yv.min(), yv.max()
-                if ma==mi:
+                if ma == mi:
                     vs.append(0.5)
                 else:
                     if i in ['债务率','土地财政依赖度','财政支出增长率']:
-                        vs.append(1-(v-mi)/(ma-mi))
+                        vs.append(1 - (v - mi) / (ma - mi))
                     else:
-                        vs.append((v-mi)/(ma-mi))
-            fig.add_trace(go.Scatterpolar(r=vs, theta=inds, fill='toself', name=cy))
-        fig.update_layout(polar=dict(radialaxis=dict(range=[0,1])), height=500)
-        st.plotly_chart(fig, use_container_width=True)
+                        vs.append((v - mi) / (ma - mi))
+            fig_radar.add_trace(go.Scatterpolar(r=vs, theta=inds, fill='toself', name=cy))
+        fig_radar.update_layout(polar=dict(radialaxis=dict(range=[0,1])), height=500)
+        st.plotly_chart(fig_radar, use_container_width=True)
 
-    # 风险地图（保持不变）
+    # 风险地图
     st.markdown("---")
     st.subheader("⏰ 风险地图动态时间轴")
     ys = sorted(df['年份'].unique())
