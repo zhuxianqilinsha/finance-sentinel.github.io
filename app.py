@@ -29,7 +29,7 @@ if 'recent_counties' not in st.session_state:
 
 # ------------------ 设置 matplotlib 中文字体（用于PDF） ------------------
 def setup_chinese_font():
-    font_file = "NotoSansCJKsc-Regular.ttf"
+    font_file = "NotoSansCJKsc-Regular.otf"
     if os.path.exists(font_file):
         font_prop = matplotlib.font_manager.FontProperties(fname=font_file)
         matplotlib.rcParams['font.family'] = font_prop.get_name()
