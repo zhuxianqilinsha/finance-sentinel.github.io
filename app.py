@@ -29,22 +29,35 @@ if 'recent_counties' not in st.session_state:
 
 # ------------------ 设置 matplotlib 中文字体（用于PDF） ------------------
 def setup_chinese_font():
-    font_file = "NotoSansCJKsc-Regular.otf"
-    if os.path.exists(font_file):
-        font_prop = matplotlib.font_manager.FontProperties(fname=font_file)
-        matplotlib.rcParams['font.family'] = font_prop.get_name()
-        return True
-    else:
-        available_fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
-        chinese_fonts = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'Noto Sans CJK TC', 'STHeiti', 'STSong']
-        for candidate in chinese_fonts:
-            if candidate in available_fonts:
-                matplotlib.rcParams['font.family'] = candidate
+    # 可能的字体文件名列表（按顺序查找）
+    font_candidates = [
+        "NotoSansCJKsc-Regular.otf",   # 您现有的文件
+        "NotoSansCJKsc-Regular.ttf",
+        "SimHei.ttf",
+        "msyh.ttc"
+    ]
+    for font_file in font_candidates:
+        if os.path.exists(font_file):
+            try:
+                font_prop = matplotlib.font_manager.FontProperties(fname=font_file)
+                matplotlib.rcParams['font.family'] = font_prop.get_name()
+                st.success(f"✅ 已加载中文字体：{font_file}")
                 return True
-        st.warning("未找到中文字体，PDF 报告中的中文可能显示为方框。请将字体文件 'NotoSansCJKsc-Regular.ttf' 上传到应用根目录。")
-        return False
-
-font_ok = setup_chinese_font()
+            except Exception as e:
+                st.warning(f"尝试加载 {font_file} 失败：{e}")
+                continue
+    
+    # 如果本地没有，尝试系统自带中文字体（云环境通常没有，但保留）
+    available_fonts = [f.name for f in matplotlib.font_manager.fontManager.ttflist]
+    chinese_fonts = ['SimHei', 'Microsoft YaHei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC']
+    for candidate in chinese_fonts:
+        if candidate in available_fonts:
+            matplotlib.rcParams['font.family'] = candidate
+            st.info(f"使用系统字体：{candidate}")
+            return True
+    
+    st.warning("未找到中文字体文件，PDF 报告中的中文可能显示为方框。请将 .otf 或 .ttf 字体文件上传到应用根目录。")
+    return False
 
 # ------------------ 辅助函数：安全转数值 ------------------
 def to_numeric_series(s):
