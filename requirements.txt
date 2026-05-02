@@ -20,3 +20,12 @@ statsmodels>=0.14.0
 # PDF生成（reportlab）
 reportlab>=4.0.0
 kaleido
+streamlit
+pandas
+numpy
+plotly
+statsmodels
+pillow
+reportlab
+streamlit-option-menu
+matplotlib
